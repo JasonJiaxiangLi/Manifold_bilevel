@@ -1,15 +1,15 @@
 """
     Modeling the following robust Karcher mean problem:
     
-    \min -\sum_{i} y_{i} L_i(S) + \lambda * \|y-\ones/n\|^2
-    s.t. \min \sum_{i} y_{i} L_i(S)
-    L_i(S) is the mle of Gaussian distribution
-    where z_i is standard Gaussian random vector
+    \min -\sum_{i} y_{i} d(S, A_i)^2 + \lambda * \|y-\ones/n\|^2
+    s.t. \min \sum_{i} y_{i} d(S, A_i)^2
+    d(S, A_i)^2 is the geodesic distance to matrix A_i
 """
 import time
 import manifolds
 import random
 import numpy as np
+import scipy
 import matplotlib.pyplot as plt
 from misc import projection_simplex_bisection
 
@@ -20,7 +20,7 @@ class problem(object):
     """
     This is the class for the bilevel objective
     """
-    def __init__(self, d, n, S=None, data=None, lam=1):
+    def __init__(self, d, n, data=None, lam=1):
         """
 
         :param d: dimension of S\in\RR^{d x d}
@@ -30,27 +30,25 @@ class problem(object):
         self.d, self.n = d, n
         self.ones = np.ones(n)
         self.manifold = manifolds.psd.PositiveDefinite(d)
-        if S is None:
-            temp = np.random.randn(d, d)
-            S = temp.dot(temp.T)
-        self.S = S
         if not data:
-            data = np.random.multivariate_normal(np.zeros(self.d), self.S, n)
+            data = [self.manifold.rand() for _ in range(n)]
         self.data = data
-        self.cov = self.data.T.dot(self.data) / self.n
-        self.dist = np.linalg.norm(self.cov - S)
-        print(f"Distance of population covariance and sample covariance {self.dist}")
+        print(f"Create Karcher mean problem with (d, n)={d, n}")
         
         self.lam = lam
-        self.name = "robust_mle"
+        self.name = "karcher_mean"
 
-    def mle(self, S, x):
-        return 1 / 2 * (np.log(np.linalg.det(S)) + x.dot(np.linalg.inv(S)).dot(x))
+    def sqdist(self, A, B, inv_sqrt_A=None):
+        if inv_sqrt_A is None:
+            inv_sqrt_A = np.linalg.inv(scipy.linalg.sqrtm(A))
+        return np.linalg.norm(inv_sqrt_A.dot(B).dot(inv_sqrt_A))
 
     def fval(self, S, y):
-        return sum([- y[i] * self.mle(S, self.data[i]) for i in range(self.n)]) + \
+        inv_sqrt_S = np.linalg.inv(scipy.linalg.sqrtm(S))
+        return sum([- y[i] * self.sqdist(S, self.data[i], inv_sqrt_S) for i in range(self.n)]) + \
                self.lam * np.linalg.norm(y - self.ones / self.n) ** 2
 
+    # TODO: continue here
     def gval(self, S, y):
         return sum([y[i] * self.mle(S, self.data[i]) for i in range(self.n)])
 
