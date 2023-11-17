@@ -5,7 +5,7 @@ by www.matrixcalculus.org
 
 from input
 
-d/dA tr(C * log(P X Q))
+d/dA tr(X^{-1} * C * log(P X Q))
 
 where
 
@@ -22,20 +22,24 @@ def symm(A):
     return (A + A.T) / 2
 
 def fAndG(X, P, Q, C):
-    functionValue = np.trace(C.dot(scipy.linalg.logm(P.dot(X).dot(Q))))
+    invX = np.linalg.inv(X)
+    temp0 = C.dot(scipy.linalg.logm(P.dot(X).dot(Q)))
+    functionValue = np.trace(invX.dot(temp0))
+    # functionValue = np.trace(temp0)
     d = X.shape[0]
     gradient = np.zeros_like(X)
-    zeros = np.zeros_like(X)
-    temp1 = np.block([[zeros, C], [zeros, zeros]])
-    temp2 = np.block([[P, zeros], [zeros, P]])
-    temp4 = np.block([[Q, zeros], [zeros, Q]])
+    Z = np.zeros_like(X)
+    temp1 = np.block([[Z, C.dot(invX)], [Z, Z]])
+    temp2 = np.block([[P, Z], [Z, P]])
+    temp4 = np.block([[Q, Z], [Z, Q]])
     for i in range(d):
         for j in range(d):
             Eij = np.zeros_like(X)
             Eij[i, j] = 1
-            temp3 = np.block([[X, Eij], [zeros, X]])
+            temp3 = np.block([[X, Eij], [Z, X]])
             gradient[i, j] = np.trace(temp1.T.dot(scipy.linalg.logm(temp2.dot(temp3).dot(temp4))))
 
+    gradient = gradient - invX.dot(temp0.T).dot(invX)
     return functionValue, gradient
 
 def checkGradient(X, P, Q, C):
