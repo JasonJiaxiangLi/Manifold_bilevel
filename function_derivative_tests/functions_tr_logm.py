@@ -1,9 +1,5 @@
 """
-Sample code automatically generated on 2023-10-22 00:15:57
-
-by www.matrixcalculus.org
-
-from input
+test on
 
 d/dA tr(X^{-1} * C * log(P X Q))
 
