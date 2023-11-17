@@ -22,7 +22,7 @@ def symm(A):
     return (A + A.T) / 2
 
 def fAndG(X, P, Q, C):
-    functionValue = np.trace(C.dot(P.dot(X).dot(Q)))
+    functionValue = np.trace(C.dot(scipy.linalg.logm(P.dot(X).dot(Q))))
     d = X.shape[0]
     gradient = np.zeros_like(X)
     zeros = np.zeros_like(X)
