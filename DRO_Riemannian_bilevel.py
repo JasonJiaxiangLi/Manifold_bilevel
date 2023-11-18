@@ -32,7 +32,7 @@ def bio(problem, x0, y0, K, T, alpha, beta, flag=0):
         # AID calculation: solving the linear equation
         # v is the solution of linear equation grady_grady_g*v = grady_f
         # need to first translate the tensor equation into matrix equation
-        v = problem.get_stoc_v(x, y, Q=30, eta=alpha)
+        v = problem.get_stoc_v(x, y, Q=5, eta=alpha)
         # v = np.linalg.solve(problem.grady_grady_g(x,y), problem.grady_f(x,y))
         grad_hat = problem.grady_f(x, y) - problem.grady_gradx_g(x, y, v)
 
@@ -45,12 +45,12 @@ def bio(problem, x0, y0, K, T, alpha, beta, flag=0):
         # recording
         time_record[k] = time.time() - time0
         
-        if problem.name == "kpca":
-            val = problem.fval(x, y)
-        elif problem.name == "robust_mle":
+        if problem.name == "robust_mle":
             val = problem.Phi_val(y)
+        else:
+            val = problem.fval(x, y)
 
-        if flag and k % 100 == 0:
+        if flag and k % 10 == 0:
             print("iter: %d, fval: %f, ||grad map||=%f" % (
                         k, val, np.linalg.norm(grad_map)))
             # print(np.sum(y))

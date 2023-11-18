@@ -56,7 +56,7 @@ class problem(object):
     
     def get_y(self, S):
         inv_sqrt_S = np.linalg.inv(scipy.linalg.sqrtm(S))
-        temp = [self.ones[i] / self.n - self.sqdist(S, self.data[i], inv_sqrt_S)/(2*self.lam) for i in range(self.n)]
+        temp = [self.ones[i] / self.n + self.sqdist(S, self.data[i], inv_sqrt_S)/(2*self.lam) for i in range(self.n)]
         return projection_simplex_bisection(temp)
 
     def Phi_val(self, y):
@@ -66,14 +66,14 @@ class problem(object):
     # Riemannian gradient
     def gradx_g(self, S, y):
         # output is d by d
-        sqrt_S = scipy.linalg.sqrtm(S)
+        sqrtS = scipy.linalg.sqrtm(S)
         res = np.zeros_like(S)
         for i in range(self.n):
             invA = self.inv_data[i]
-            res += y[i] * sqrt_S.dot(scipy.linalg.logm(sqrt_S.dot(invA).dot(sqrt_S))).dot(sqrt_S)
+            res += y[i] * sqrtS.dot(scipy.linalg.logm(sqrtS.dot(invA).dot(sqrtS))).dot(sqrtS)
         return res
 
-    def grady_g(self, S, y):  
+    def grady_g(self, S, y):
         # output is n by 1
         inv_sqrt_S = np.linalg.inv(scipy.linalg.sqrtm(S))
         return np.array([self.sqdist(S, self.data[i], inv_sqrt_S) for i in range(self.n)])
@@ -108,12 +108,12 @@ class problem(object):
             temp1 = np.block([[self.Z, sqrtA.dot(invS).dot(v).dot(sqrtinvA)], [self.Z, self.Z]])
             temp2 = np.block([[sqrtinvA, self.Z], [self.Z, sqrtinvA]])
             temp4 = np.block([[sqrtinvA, self.Z], [self.Z, sqrtinvA]])
-            for i in range(d):
-                for j in range(d):
+            for p in range(d):
+                for q in range(d):
                     Eij = np.zeros_like(S)
-                    Eij[i, j] = 1
+                    Eij[p, q] = 1
                     temp3 = np.block([[S, Eij], [self.Z, S]])
-                    part2[i, j] = np.trace(temp1.T.dot(scipy.linalg.logm(temp2.dot(temp3).dot(temp4))))
+                    part2[p, q] = np.trace(temp1.T.dot(scipy.linalg.logm(temp2.dot(temp3).dot(temp4))))
             ehess += y[i] * (part1 + part2)
 
         rhess = self.manifold.ehess2rhess(S, egrad, ehess, v)
@@ -137,8 +137,8 @@ class problem(object):
         return eta * Q * res
     
 if __name__=="__main__":
-    K, T = 100, 10
-    alpha, beta = 1e-5, 1e-5
+    K, T = 100, 5
+    alpha, beta = 1e-2, 1e-2
     prob = problem(d=5, n=10, lam=1)
     mani = prob.manifold
     x = mani.rand()
@@ -156,7 +156,7 @@ if __name__=="__main__":
         # AID calculation: solving the linear equation
         # v is the solution of linear equation grady_grady_g*v = grady_f
         # need to first translate the tensor equation into matrix equation
-        v = prob.get_stoc_v(x, y, Q=30, eta=alpha)
+        v = prob.get_stoc_v(x, y, Q=5, eta=alpha)
         # v = np.linalg.solve(prob.grady_grady_g(x,y), prob.grady_f(x,y))
         grad_hat = prob.grady_f(x, y) - prob.grady_gradx_g(x, y, v)
 

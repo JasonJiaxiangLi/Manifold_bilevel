@@ -58,7 +58,7 @@ class problem(object):
         return sum([y[i] * self.data[i].reshape(self.d, 1).dot(self.data[i].reshape(1, self.d)) for i in range(self.n)])
     
     def get_y(self, S):
-        temp = [self.ones[i] / self.n - self.mle(S, self.data[i])/(2*self.lam) for i in range(self.n)]
+        temp = [self.ones[i] / self.n + self.mle(S, self.data[i])/(2*self.lam) for i in range(self.n)]
         return projection_simplex_bisection(temp)
 
     def Phi_val(self, y):
