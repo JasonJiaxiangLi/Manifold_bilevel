@@ -33,6 +33,8 @@ class problem(object):
         if not data:
             data = [self.manifold.rand() for _ in range(n)]
         self.data = data
+        self.inv_data = [np.linalg.inv(A) for A in data]
+        self.Z = np.zeros((d, d))
         print(f"Create Karcher mean problem with (d, n)={d, n}")
         
         self.lam = lam
@@ -41,58 +43,91 @@ class problem(object):
     def sqdist(self, A, B, inv_sqrt_A=None):
         if inv_sqrt_A is None:
             inv_sqrt_A = np.linalg.inv(scipy.linalg.sqrtm(A))
-        return np.linalg.norm(inv_sqrt_A.dot(B).dot(inv_sqrt_A))
+        return np.linalg.norm(scipy.linalg.logm(inv_sqrt_A.dot(B).dot(inv_sqrt_A))) ** 2
 
     def fval(self, S, y):
         inv_sqrt_S = np.linalg.inv(scipy.linalg.sqrtm(S))
         return sum([- y[i] * self.sqdist(S, self.data[i], inv_sqrt_S) for i in range(self.n)]) + \
                self.lam * np.linalg.norm(y - self.ones / self.n) ** 2
 
-    # TODO: continue here
     def gval(self, S, y):
-        return sum([y[i] * self.mle(S, self.data[i]) for i in range(self.n)])
-
-    def get_s(self, y):
-        return sum([y[i] * self.data[i].reshape(self.d, 1).dot(self.data[i].reshape(1, self.d)) for i in range(self.n)])
+        inv_sqrt_S = np.linalg.inv(scipy.linalg.sqrtm(S))
+        return sum([y[i] * self.sqdist(S, self.data[i], inv_sqrt_S) for i in range(self.n)])
     
     def get_y(self, S):
-        temp = [self.ones[i] / self.n - self.mle(S, self.data[i])/(2*self.lam) for i in range(self.n)]
+        inv_sqrt_S = np.linalg.inv(scipy.linalg.sqrtm(S))
+        temp = [self.ones[i] / self.n - self.sqdist(S, self.data[i], inv_sqrt_S)/(2*self.lam) for i in range(self.n)]
         return projection_simplex_bisection(temp)
 
     def Phi_val(self, y):
-        return self.fval(self.get_s(y), y)
+        # return self.fval(self.get_s(y), y)
+        raise NotImplementedError
 
     # Riemannian gradient
     def gradx_g(self, S, y):
         # output is d by d
+        sqrt_S = scipy.linalg.sqrtm(S)
         res = np.zeros_like(S)
         for i in range(self.n):
-            x = self.data[i]
-            res += y[i] / 2 * (S - x.reshape((self.d, 1)).dot(x.reshape((1, self.d))))
+            invA = self.inv_data[i]
+            res += y[i] * sqrt_S.dot(scipy.linalg.logm(sqrt_S.dot(invA).dot(sqrt_S))).dot(sqrt_S)
         return res
 
     def grady_g(self, S, y):  
         # output is n by 1
-        return np.array([self.mle(S, self.data[i]) for i in range(self.n)])
+        inv_sqrt_S = np.linalg.inv(scipy.linalg.sqrtm(S))
+        return np.array([self.sqdist(S, self.data[i], inv_sqrt_S) for i in range(self.n)])
 
     def gradx_f(self, S, y):
         return -self.gradx_g(S, y)
 
     def grady_f(self, S, y):
-        return np.array([- self.mle(S, self.data[i]) for i in range(self.n)]) + self.lam * 2 * (y - self.ones / self.n)
+        inv_sqrt_S = np.linalg.inv(scipy.linalg.sqrtm(S))
+        return np.array([- self.sqdist(S, self.data[i], inv_sqrt_S) for i in range(self.n)]) + self.lam * 2 * (y - self.ones / self.n)
 
     # Hessian vector product
     def gradx_gradx_g(self, S, y, v):
         # output is d by d
         invS = np.linalg.inv(S)
-        return sum([y[i] * (1/2 * symm(v.dot(invS).dot(self.data[i].reshape(self.d, 1)).dot(self.data[i].reshape(1, self.d))))\
-                     for i in range(self.n)])
+        sqrtS = scipy.linalg.sqrtm(S)
+        invsqrtS = np.linalg.inv(sqrtS)
+
+        egrad = np.zeros_like(S)
+        ehess = np.zeros_like(S)
+        for i in range(self.n):
+            A, invA = self.data[i], self.inv_data[i]
+            sqrtA, sqrtinvA = scipy.linalg.sqrtm(A), scipy.linalg.sqrtm(invA)
+
+            # calculate egrad
+            egrad += y[i] * invsqrtS.dot(scipy.linalg.logm(sqrtS.dot(invA).dot(sqrtS))).dot(invsqrtS)
+
+            # calculate ehess
+            part1 = - invS.dot(v).dot(sqrtinvA).dot(scipy.linalg.logm(sqrtinvA.dot(S).dot(sqrtinvA))).dot(sqrtA).dot(invS)
+            part2 = np.zeros_like(S)
+            d = S.shape[0]
+            temp1 = np.block([[self.Z, sqrtA.dot(invS).dot(v).dot(sqrtinvA)], [self.Z, self.Z]])
+            temp2 = np.block([[sqrtinvA, self.Z], [self.Z, sqrtinvA]])
+            temp4 = np.block([[sqrtinvA, self.Z], [self.Z, sqrtinvA]])
+            for i in range(d):
+                for j in range(d):
+                    Eij = np.zeros_like(S)
+                    Eij[i, j] = 1
+                    temp3 = np.block([[S, Eij], [self.Z, S]])
+                    part2[i, j] = np.trace(temp1.T.dot(scipy.linalg.logm(temp2.dot(temp3).dot(temp4))))
+            ehess += y[i] * (part1 + part2)
+
+        rhess = self.manifold.ehess2rhess(S, egrad, ehess, v)
+        return rhess
 
     # the following is the Riemannian cross-derivative for g function
     def grady_gradx_g(self, S, y, v):  
         # output is n by 1
-        v = self.manifold.proj(S, v)
-        return np.array([1/2 * (np.trace(S.dot(v)) - self.data[i].dot(v).dot(self.data[i])) for i in range(self.n)])
+        sqrt_S = scipy.linalg.sqrtm(S)
+        res = np.zeros_like(y)
+        for i in range(self.n):
+            invA = self.inv_data[i]
+            res[i] = np.trace(v.dot(sqrt_S.dot(scipy.linalg.logm(sqrt_S.dot(invA).dot(sqrt_S))).dot(sqrt_S)))
+        return res
     
     def get_stoc_v(self, X, y, Q=10, eta=0.01):
         Qp = random.randint(1, Q)
@@ -102,9 +137,9 @@ class problem(object):
         return eta * Q * res
     
 if __name__=="__main__":
-    K, T = 1000, 50
+    K, T = 100, 10
     alpha, beta = 1e-5, 1e-5
-    prob = problem(d=15, n=30, lam=1e2)
+    prob = problem(d=5, n=10, lam=1)
     mani = prob.manifold
     x = mani.rand()
     y = np.ones(prob.n) / prob.n
@@ -112,13 +147,11 @@ if __name__=="__main__":
     fval_record = [0.0] * K
     norm_record = [0.0] * K
     time_record = [0.0] * K
-    dist_record = [0.0] * K
 
     time0 = time.time()
     for k in range(K):
-        # for _ in range(T):  # inner loop
-        #     x = mani.retr(x, -beta * prob.gradx_g(x, y))
-        x = prob.get_s(y)
+        for _ in range(T):  # inner loop
+            x = mani.retr(x, -beta * prob.gradx_g(x, y))
 
         # AID calculation: solving the linear equation
         # v is the solution of linear equation grady_grady_g*v = grady_f
@@ -134,35 +167,24 @@ if __name__=="__main__":
 
         # recording
         time_record[k] = time.time() - time0
-        
-        if prob.name == "kpca":
-            val = prob.fval(x, y)
-        elif prob.name == "robust_mle":
-            val = prob.Phi_val(y)
+        val = prob.fval(x, y)
             
         if k % 10 == 0:
-            print("iter: %d, fval: %f, dist: %f" % (k, val, np.linalg.norm(x - prob.S)))
+            print("iter: %d, fval: %f, norm: %f" % (k, val, np.linalg.norm(grad_map)))
             # print(np.sum(y))
             # print(y)
         fval_record[k] = val
-        # norm_record[k] = np.linalg.norm(grad_map)
-        dist_record[k] = np.linalg.norm(x - prob.S)
+        norm_record[k] = np.linalg.norm(grad_map)
     
     plt.plot(time_record, fval_record)
     plt.xlabel("CPU time")
     plt.ylabel("Function value $\Phi(x_k)$")
     plt.show()
-    # plt.savefig('DL_time_function_val_' + str(d) + '_' + str(p) + '_' + str(n) + '.pdf')
+    # plt.savefig('karcher_time_function_val_' + str(d) + '_' + str(p) + '_' + str(n) + '.pdf')
 
     plt.plot(time_record, norm_record)
     plt.yscale("log")
     plt.xlabel("CPU time")
     plt.ylabel("Norm of the gradient map")
     plt.show()
-    # plt.savefig('DL_time_norm_grad_' + str(d) + '_' + str(p) + '_' + str(n) + '.pdf')
-
-    plt.plot(time_record, dist_record)
-    # plt.yscale("log")
-    plt.xlabel("CPU time")
-    plt.ylabel("Dist to optimal")
-    plt.show()
+    # plt.savefig('karcher_time_norm_grad_' + str(d) + '_' + str(p) + '_' + str(n) + '.pdf')
