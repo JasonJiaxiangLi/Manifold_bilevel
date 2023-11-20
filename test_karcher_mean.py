@@ -13,7 +13,7 @@ n_list = [5, 5, 5]
 # beta_list = [1e-3, 5e-4, 1e-4, 5e-5]
 rep = 1
 K = 100
-inner_iter = 5
+inner_iter = 50
 
 fig1 = plt.figure()
 ax1 = fig1.gca()
@@ -29,7 +29,7 @@ for t in range(2):
     time_record = np.array([0.0] * K)
     # alpha = alpha_list[t]
     # beta = beta_list[t]
-    alpha, beta = 1e-2, 1e-2
+    alpha, beta = 1e-5, 1e-5
     print("Test on (d, n)=(%d, %d)" % (d, n))
 
     problem = Karcher_mean.problem(d=d, n=n, lam=1)
