@@ -40,7 +40,7 @@ def bio(problem, x0, y0, K, T, alpha, beta, flag=0):
 
         # update
         y = y - alpha * grad_map
-        # y = problem.ones / problem.n
+        # y = (1 - alpha) * y + alpha * problem.get_y(x)
 
         # recording
         time_record[k] = time.time() - time0
@@ -53,7 +53,6 @@ def bio(problem, x0, y0, K, T, alpha, beta, flag=0):
         if flag and k % 10 == 0:
             print("iter: %d, fval: %f, ||grad map||=%f" % (
                         k, val, np.linalg.norm(grad_map)))
-            # print(np.sum(y))
             # print(y)
         fval_record[k] = val
         norm_record[k] = np.linalg.norm(grad_map)
