@@ -67,7 +67,7 @@ class problem(object):
     def gradx_g(self, S, y):
         # output is d by d
         sqrtS = scipy.linalg.sqrtm(S)
-        return np.sum([y[i] * sqrtS.dot(scipy.linalg.logm(sqrtS.dot(self.inv_data[i]).dot(sqrtS))).dot(sqrtS) for i in range(self.n)])
+        return sum([y[i] * sqrtS.dot(scipy.linalg.logm(sqrtS.dot(self.inv_data[i]).dot(sqrtS))).dot(sqrtS) for i in range(self.n)])
 
     def grady_g(self, S, y):
         # output is n by 1
