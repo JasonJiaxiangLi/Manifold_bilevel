@@ -9,11 +9,11 @@ from misc import projection_simplex_bisection
 
 d_list = [10, 20, 30]
 n_list = [5, 5, 5]
-# alpha_list = [1e-3, 5e-4, 1e-4, 5e-5]
-# beta_list = [1e-3, 5e-4, 1e-4, 5e-5]
+alpha_list = [1e-2, 5e-3, 1e-3]
+beta_list = [1e-1, 5e-2, 1e-2]
 rep = 1
 K = 200
-inner_iter = 20
+inner_iter = 200
 
 fig1 = plt.figure()
 ax1 = fig1.gca()
@@ -22,14 +22,13 @@ ax2 = fig2.gca()
 fig3 = plt.figure()
 ax3 = fig3.gca()
 
-for t in range(2):
+for t in range(3):
     d, n = d_list[t], n_list[t]
     fval_record = np.array([0.0] * K)
     norm_record = np.array([0.0] * K)
     time_record = np.array([0.0] * K)
-    # alpha = alpha_list[t]
-    # beta = beta_list[t]
-    alpha, beta = 1e-2, 1e-5
+    alpha = alpha_list[t]
+    beta = beta_list[t]
     print("Test on (d, n)=(%d, %d)" % (d, n))
 
     problem = Karcher_mean.problem(d=d, n=n, lam=1)

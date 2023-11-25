@@ -10,11 +10,11 @@ from misc import projection_simplex_bisection
 d_list = [10, 50, 100]
 p_list = [3, 3, 3]
 n_list = [10, 10, 10]
-alpha_list = [1e-4, 5e-5, 1e-5]
-beta_list = [1e-4, 5e-5, 1e-5]
+alpha_list = [1e-2, 5e-4, 1e-5]
+beta_list = [1e-1, 1e-1, 5e-2]
 rep = 1
 K = 1000
-inner_iter = 30
+inner_iter = 100
 
 fig1 = plt.figure()
 ax1 = fig1.gca()
@@ -31,7 +31,6 @@ for t in range(3):
     angle_record = np.array([0.0] * K)
     alpha = alpha_list[t]
     beta = beta_list[t]
-    # alpha, beta = 5e-5, 5e-5
     print("Test on (d, p, n)=(%d, %d, %d)" % (d, p, n))
 
     problem = kPCA.problem(d=d, p=p, n=n, lam=0.0)
@@ -61,7 +60,7 @@ ax1.legend()
 fig1.show()
 fig1.savefig('kpca_plots/kPCA_time_function_val.pdf')
 
-ax2.set_yscale("log")
+# ax2.set_yscale("log")
 ax2.set_xlabel("CPU time")
 ax2.set_ylabel("Norm of grad mapping")
 ax2.legend()

@@ -47,8 +47,10 @@ class problem(object):
 
     def fval(self, S, y):
         inv_sqrt_S = np.linalg.inv(scipy.linalg.sqrtm(S))
-        return sum([- y[i] * self.sqdist(S, self.data[i], inv_sqrt_S) for i in range(self.n)]) + \
-               self.lam * np.linalg.norm(y - self.ones / self.n) ** 2
+        part1 = sum([- y[i] * self.sqdist(S, self.data[i], inv_sqrt_S) for i in range(self.n)])
+        part2 = self.lam * np.linalg.norm(y - self.ones / self.n) ** 2
+        # print(f"fval part1: {part1}, part2: {part2}")
+        return part1 + part2
 
     def gval(self, S, y):
         inv_sqrt_S = np.linalg.inv(scipy.linalg.sqrtm(S))
@@ -58,10 +60,17 @@ class problem(object):
         inv_sqrt_S = np.linalg.inv(scipy.linalg.sqrtm(S))
         temp = [self.ones[i] / self.n + self.sqdist(S, self.data[i], inv_sqrt_S)/(2*self.lam) for i in range(self.n)]
         return projection_simplex_bisection(temp)
+    
+    def get_y(self, y, inner_iter=100, beta=0.01):
+        X = self.manifold.rand()
+        for _ in range(inner_iter):  # inner loop
+            if np.linalg.norm(problem.gradx_g(X, y))<=1e-8:
+                break
+            X = self.manifold.retr(X, -beta * problem.gradx_g(X, y))
+        return X
 
     def Phi_val(self, y):
-        # return self.fval(self.get_s(y), y)
-        raise NotImplementedError
+        return self.fval(self.get_S(y), y)
 
     # Riemannian gradient
     def gradx_g(self, S, y):

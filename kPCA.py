@@ -46,16 +46,24 @@ class problem(object):
     def gval(self, X, y):
         return sum([-y[i] * self.data[i].dot(X.dot(X.T)).dot(self.data[i]) for i in range(self.n)])
 
-    def get_y(self, X):
-        raise NotImplementedError
+    def get_X(self, y, inner_iter=100, beta=0.01):
+        X = self.manifold.rand()
+        for _ in range(inner_iter):  # inner loop
+            if np.linalg.norm(problem.gradx_g(X, y))<=1e-8:
+                break
+            X = self.manifold.retr(X, -beta * problem.gradx_g(X, y))
+        return X
 
-    def Phi_val(self, X):
-        raise NotImplementedError
+    def Phi_val(self, y):
+        return self.fval(self.get_X(y), y)
 
     # Riemannian gradient
     def gradx_g(self, X, y):
         # output is d by p
-        egradx = sum([-2 * y[i] * self.data[i].reshape(self.d, 1).dot((self.data[i].dot(X)).reshape(1, self.p)) for i in range(self.n)])
+        egradx = np.zeros_like(X)
+        for i in range(self.n):
+            egradx += -2 * y[i] * self.data[i].reshape(self.d, 1).dot((self.data[i].dot(X)).reshape(1, self.p))
+        # egradx = sum([-2 * y[i] * self.data[i].reshape(self.d, 1).dot((self.data[i].dot(X)).reshape(1, self.p)) for i in range(self.n)])
         return self.manifold.proj(X, egradx)
 
     def grady_g(self, X, y):  

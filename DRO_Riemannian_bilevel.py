@@ -27,7 +27,8 @@ def bio(problem, x0, y0, K, T, alpha, beta, flag=0):
     time0 = time.time()
     for k in range(K):
         for _ in range(T):  # inner loop
-            x = manifold.retr(x, -beta * problem.gradx_g(x, y))
+            x = manifold.retr(x, - beta * problem.gradx_g(x, y))
+        # print(f"inner stationarity {np.linalg.norm(problem.gradx_g(x, y))}"); break
 
         # AID calculation: solving the linear equation
         # v is the solution of linear equation grady_grady_g*v = grady_f
@@ -46,15 +47,15 @@ def bio(problem, x0, y0, K, T, alpha, beta, flag=0):
         # recording
         time_record[k] = time.time() - time0
         
-        if problem.name == "robust_mle":
+        try:
             val = problem.Phi_val(y)
-        else:
+        except:
             val = problem.fval(x, y)
 
         if flag and k % 10 == 0:
             print("iter: %d, fval: %f, ||grad map||=%f" % (
                         k, val, np.linalg.norm(grad_map)))
-            # print(y)
+            # print(f"y is {y}")
         fval_record[k] = val
         norm_record[k] = np.linalg.norm(grad_map)
         if problem.name == "kpca":
