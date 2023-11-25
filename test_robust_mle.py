@@ -12,7 +12,7 @@ n_list = [100, 100, 100]
 alpha_list = [1e-3, 2e-2, 1e-4]
 beta_list = [5e-1, 3e-1, 2e-1]
 rep = 1
-K = 2000
+K = 1000
 inner_iter = 200
 
 fig1 = plt.figure()

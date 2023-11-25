@@ -22,7 +22,7 @@ ax2 = fig2.gca()
 fig3 = plt.figure()
 ax3 = fig3.gca()
 
-for t in range(3):
+for t in range(2):
     d, n = d_list[t], n_list[t]
     fval_record = np.array([0.0] * K)
     norm_record = np.array([0.0] * K)
