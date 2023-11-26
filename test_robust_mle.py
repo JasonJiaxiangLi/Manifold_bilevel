@@ -9,8 +9,8 @@ from misc import projection_simplex_bisection
 
 d_list = [10, 30, 50]
 n_list = [100, 100, 100]
-alpha_list = [1e-3, 2e-2, 1e-4]
-beta_list = [5e-1, 3e-1, 2e-1]
+alpha_list = [1e-3, 5e-4, 1e-4]
+beta_list = [5e-1, 2e-1, 1e-1]
 rep = 1
 K = 1000
 inner_iter = 200
