@@ -2,3 +2,5 @@ data/
 metalogs/
 *.ipynb
 __pycache__/
+log/
+*.log

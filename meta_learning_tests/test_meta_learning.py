@@ -76,44 +76,23 @@ def process_data(args):
                         RemapLabels(train_dataset),
                         ConsecutiveLabels(train_dataset)]
 
-    train_tasks = l2l.data.TaskDataset(train_dataset, task_transforms=train_transforms, num_tasks=n_tasks_train)
+    train_tasks = l2l.data.TaskDataset(train_dataset, task_transforms=train_transforms, num_tasks=args.n_tasks_train)
 
     val_transforms = [FusedNWaysKShots(val_dataset, n=args.ways, k=2 * args.shots),
                       LoadData(val_dataset),
                       ConsecutiveLabels(val_dataset),
                       RemapLabels(val_dataset)]
 
-    val_tasks = l2l.data.TaskDataset(val_dataset, task_transforms=val_transforms, num_tasks=n_tasks_val)
+    val_tasks = l2l.data.TaskDataset(val_dataset, task_transforms=val_transforms, num_tasks=args.n_tasks_val)
 
     test_transforms = [FusedNWaysKShots(test_dataset, n=args.ways, k=2 * args.shots),
                        LoadData(test_dataset),
                        RemapLabels(test_dataset),
                        ConsecutiveLabels(test_dataset)]
 
-    test_tasks = l2l.data.TaskDataset(test_dataset, task_transforms=test_transforms, num_tasks=n_tasks_test)
+    test_tasks = l2l.data.TaskDataset(test_dataset, task_transforms=test_transforms, num_tasks=args.n_tasks_test)
 
     return train_tasks, val_tasks, test_tasks
-
-
-def MiniimageNetFeats(hidden_size):
-    def conv_layer(ic, oc):
-        return nn.Sequential(
-            nn.Conv2d(ic, oc, 3, padding=1), nn.ReLU(inplace=True), nn.MaxPool2d(2),
-            nn.BatchNorm2d(oc, momentum=1., affine=True,
-                           track_running_stats=False
-                           )
-        )
-
-    net = nn.Sequential(
-        conv_layer(3, hidden_size),
-        conv_layer(hidden_size, hidden_size),
-        conv_layer(hidden_size, hidden_size),
-        conv_layer(hidden_size, hidden_size),
-        nn.Flatten())
-
-    #initialize(net)
-    return net
-
 
 
 class CNN(nn.Module):
@@ -130,9 +109,11 @@ class CNN(nn.Module):
 
         self.conv0_kernel = ManifoldParameter(self.stiefel.random(ic*ks*ks, hidden_size//2), manifold=self.stiefel)
 
-        self.conv1_kernel = ManifoldParameter(self.stiefel.random(hidden_size//2*ks*ks,hidden_size),
+        self.conv1_kernel = ManifoldParameter(self.stiefel.random(hidden_size//2*ks*ks, hidden_size),
                                               manifold=self.stiefel)
-        self.conv2_kernel = ManifoldParameter(self.stiefel.random(hidden_size*ks*ks,hidden_size),
+        self.conv2_kernel = ManifoldParameter(self.stiefel.random(hidden_size*ks*ks, hidden_size),
+                                              manifold=self.stiefel)
+        self.conv3_kernel = ManifoldParameter(self.stiefel.random(hidden_size*ks*ks, hidden_size),
                                               manifold=self.stiefel)
         # self.FC_w = ManifoldParameter(torch.Tensor(14112, 256).uniform_(-0.001, 0.001), manifold=Euclidean(ndim=2))
         # self.FC_b = ManifoldParameter(torch.Tensor(256).uniform_(-0.001, 0.001), manifold=Euclidean(ndim=1))
@@ -142,15 +123,18 @@ class CNN(nn.Module):
                                   track_running_stats=False)
         self.bn2 = nn.BatchNorm2d(hidden_size, momentum=1., affine=False,
                                   track_running_stats=False)
+        self.bn3 = nn.BatchNorm2d(hidden_size, momentum=1., affine=False,
+                                  track_running_stats=False)
 
     def conv_layer(self, x, conv_param, bn):
-        x = F.relu(F.conv2d(x, conv_param,padding=self.pad), inplace=True)
-        # x = F.batch_norm(x, running_mean=torch.zeros(self.hidden_size).to(device),
-        #                  running_var=torch.ones(self.hidden_size).to(device),
-        #                  weight=bn_w, bias=bn_b, training=self.training,
-        #                  momentum=0.1, eps=1e-5)
-        x = F.max_pool2d(x, 2)
+        # x = F.relu(F.conv2d(x, conv_param,padding=self.pad))
+        # x = F.max_pool2d(x, 2)
+        # x = bn(x)
+        
+        x = F.conv2d(x, conv_param, padding=self.pad)
         x = bn(x)
+        x = F.relu(x)
+        x = F.max_pool2d(x, 2)
         return x
 
     def forward(self, x, hparams):
@@ -158,6 +142,7 @@ class CNN(nn.Module):
         conv0_kernel = hparams[0]
         conv1_kernel = hparams[1]
         conv2_kernel = hparams[2]
+        conv3_kernel = hparams[3]
         # FC_w = hparams[2]
         # FC_b = hparams[3]
 
@@ -165,10 +150,11 @@ class CNN(nn.Module):
         x = self.conv_layer(x, conv1_kernel.transpose(-1,-2).view(self.hidden_size,self.hidden_size//2,self.ks, self.ks), self.bn1)
         x = self.conv_layer(x, conv2_kernel.transpose(-1,-2).view(self.hidden_size, self.hidden_size, self.ks,
                                                                    self.ks), self.bn2)
+        x = self.conv_layer(x, conv3_kernel.transpose(-1,-2).view(self.hidden_size, self.hidden_size, self.ks,
+                                                                   self.ks), self.bn3)
         x = x.view(x.size(0), -1)
         # x = F.relu(x @ FC_w + FC_b)
         return x
-
 
 class FC(nn.Module):
     def __init__(self, input_size, num_class):
@@ -191,21 +177,28 @@ if __name__ == '__main__':
     parser.add_argument('--resume', type=bool, default=False, help='whether to resume from checkpoint')
     parser.add_argument('--ckpt_dir', type=str, default='metalogs', help='path of checkpoint file')
     parser.add_argument('--save_every', type=int, default=200)
-    parser.add_argument('--batch_size', type=int, default=16, help='meta batch size')
+    parser.add_argument('--batch_size', type=int, default=4, help='meta batch size')
     parser.add_argument('--ways', type=int, default=5, help='num classes in few shot learning')
     parser.add_argument('--shots', type=int, default=5, help='num training shots in few shot learning')
     parser.add_argument('--steps', type=int, default=10000, help='total number of outer steps')
     parser.add_argument('--reg_param', type=float, default=0.5, help='reg param for inner problem')
 
-    parser.add_argument('--eta_x', type=float, default=0.001)
-    parser.add_argument('--eta_y', type=float, default=0.005)
-    parser.add_argument('--lower_iter', type=int, default=100)
+    parser.add_argument('--eta_x', type=float, default=0.0005)
+    parser.add_argument('--eta_y', type=float, default=0.01)
+    parser.add_argument('--ns_gamma', type=float, default=0.01) # the eta in Neumann series
+    parser.add_argument('--ns_iter', type=int, default=30) # the K or Q in Neumann series
+    parser.add_argument('--lower_iter', type=int, default=15)
     parser.add_argument('--epoch', type=int, default=200)
-    parser.add_argument('--hygrad_opt', type=str, default='cg', choices=['hinv', 'cg', 'ns', 'ad'])
-    parser.add_argument('--ns_gamma', type=float, default=0.01)
-    parser.add_argument('--ns_iter', type=int, default=50)
+    parser.add_argument('--hygrad_opt', type=str, default='ns', choices=['hinv', 'cg', 'ns', 'ad'])
     parser.add_argument('--seed', type=int, default=42)
     parser.add_argument('--T', type=int, default=30)
+    
+    parser.add_argument('--n_tasks_train', type=int, default=20000)
+    parser.add_argument('--n_tasks_test', type=int, default=200)
+    parser.add_argument('--n_tasks_val', type=int, default=200)
+    
+    parser.add_argument('--log_interval', type=int, default=50)
+    parser.add_argument('--eval_interval', type=int, default=50)
 
     args = parser.parse_args()
 
@@ -213,22 +206,13 @@ if __name__ == '__main__':
         os.makedirs(args.ckpt_dir)
 
     run = 1
-    mu = 0.1
-    inner_lr = .01
-    outer_lr = .01
-    inner_mu = 0.9
+    eval_interval = args.eval_interval
+    log_interval = args.log_interval
     K = args.steps
     stop_k = None  # stop iteration for early stopping. leave to None if not using it
-    n_tasks_train = 20000
-    n_tasks_test = 200  # usually around 1000 tasks are used for testing
-    n_tasks_val = 200
 
     reg_param = args.reg_param  # reg_param = 0.5
-    # T = 30  # T = 30
-
     T_test = args.T
-    log_interval = 25
-    eval_interval = 50
 
     test_inner_lr = args.eta_y
 
@@ -258,10 +242,18 @@ if __name__ == '__main__':
     torch.backends.cudnn.deterministic = True
 
     # process data
-    train_tasks, val_tasks, test_tasks = process_data(args)
+    # train_tasks, val_tasks, test_tasks = process_data(args)
+    train_tasks, val_tasks, test_tasks = l2l.vision.benchmarks.get_tasksets('mini-imagenet',
+                                                                            train_samples=2*args.shots,
+                                                                            train_ways=args.ways,
+                                                                            test_samples=2*args.shots,
+                                                                            test_ways=args.ways,
+                                                                            root=os.path.dirname(os.path.abspath(__file__)) + '/data/MiniImageNet')
 
     meta_model = CNN(32).to(device)
-    task_model = FC(3200, args.ways).to(device)
+    # meta_model = NewCNN(32).to(device)
+    # task_model = FC(3200, args.ways).to(device)
+    task_model = FC(800, args.ways).to(device)
     
     # define the problem class
     problem = meta_learning_problem(meta_model, task_model, args)
@@ -272,49 +264,61 @@ if __name__ == '__main__':
 
     run_time, accs, vals, evals = [], [], [], []
 
-    w0 = [torch.zeros_like(p).to(device) for p in task_model.parameters()]
-
     hparams = list(meta_model.parameters())
     params = list(task_model.parameters())
-    # print([(param.name, param.shape) for param in params])
-    # exit()
 
     inner_log_interval = None
     inner_log_interval_test = None
 
     meta_bsz = args.batch_size
-
+    
+    running_loss = 0.0
+    hgradnorm = 0.0
+    
     for k in range(start_iter, K):
         start_time = time.time()
 
         val_loss, val_acc = 0, 0
         forward_time, backward_time = 0, 0
-        # w_accum = [torch.zeros_like(w).to(device) for w in w0]
 
-        th = 0.0
-
-        # for t_idx in range(meta_bsz):
+        for t_idx in range(meta_bsz):
             
-        start_time_task = time.time()
-        # sample a training task
-        task_data = train_tasks.sample()
+            start_time_task = time.time()
+            # sample a training task
+            task_data = train_tasks.sample()
 
-        task_data = split_into_adapt_eval(task_data,
-                                            shots=args.shots,
-                                            ways=args.ways,
-                                            device=device)
+            train_input, train_target, test_input, test_target = split_into_adapt_eval(task_data,
+                                                shots=args.shots,
+                                                ways=args.ways,
+                                                device=device)
 
-        train_input, train_target, test_input, test_target = task_data
-        data_lower = [train_input, train_target]
-        data_upper = [test_input, test_target]
-        # single task set up
-        # task = Task(reg_param, meta_model, task_model, task_data, batch_size=meta_bsz)
-
-        hparams, params, loss_u, hgradnorm, step_time = RieSBOstep(problem, hparams, params, args,
-                                                                    data=[data_lower, data_upper])
+            data_lower = [train_input, train_target]
+            data_upper = [test_input, test_target]
+            # single task set up
+            # task = Task(reg_param, meta_model, task_model, task_data, batch_size=meta_bsz)
+            
+            hparams, params, loss_u, step_time = RieSBOstep(problem, hparams, params, args,
+                                                                        data=[data_lower, data_upper])
+            running_loss += loss_u
         
-        if k % eval_interval == 0:
-            print(f"    iter {k}, loss upper: {loss_u}, step time: {step_time}")
+        with torch.no_grad():
+            for hparam in hparams:
+                egrad = hparam.grad / meta_bsz
+                new_hparam = hparam - args.eta_x * egrad
+                hgradnorm += torch.linalg.norm(egrad)
+                
+                # rgrad = hparam.manifold.egrad2rgrad(hparam, egrad)
+                # new_hparam = hparam.manifold.retr(hparam, - args.eta_x * rgrad)
+                # hgradnorm += torch.linalg.norm(rgrad)
+                
+                hparam.copy_(new_hparam)
+        
+        if (k + 1) % eval_interval == 0:
+            print(f"iter {k}, step time: {step_time}")
+            print(f"          norm_grad: {hgradnorm / eval_interval / meta_bsz}")
+            print(f"          Train loss: {running_loss / eval_interval / meta_bsz}")
+            running_loss = 0.0
+            hgradnorm = 0.0
 
         run_time.append(total_time)
         vals.append(val_loss)  # this is actually train loss in few-shot learning
@@ -330,7 +334,7 @@ if __name__ == '__main__':
                                             T_test, args)
 
             evals.append((val_losses.mean(), val_losses.std(), 100. * val_accs.mean(), 100. * val_accs.std()))
-            string = "Val loss {:.2e} (+/- {:.2e}): Val acc: {:.2f} (+/- {:.2e}) [mean (+/- std) over {} tasks].".format(
+            string = "          Val loss {:.2e} (+/- {:.2e}): Val acc: {:.2f} (+/- {:.2e}) [mean (+/- std) over {} tasks].".format(
                 val_losses.mean(), val_losses.std(), 100. * val_accs.mean(), 100. * val_accs.std(), len(val_losses))
             # args.out_file.write(string + '\n')
             # args.out_file.flush()
@@ -343,7 +347,7 @@ if __name__ == '__main__':
 
             evals.append((test_losses.mean(), test_losses.std(), 100. * test_accs.mean(), 100. * test_accs.std()))
 
-            string = "Test loss {:.2e} (+/- {:.2e}): Test acc: {:.2f} (+/- {:.2e}) [mean (+/- std) over {} tasks].".format(
+            string = "          Test loss {:.2e} (+/- {:.2e}): Test acc: {:.2f} (+/- {:.2e}) [mean (+/- std) over {} tasks].".format(
                 test_losses.mean(), test_losses.std(), 100. * test_accs.mean(), 100. * test_accs.std(),
                 len(test_losses))
             # args.out_file.write(string + '\n')

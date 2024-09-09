@@ -99,7 +99,8 @@ class meta_learning_problem:
         # meta_model.train()
         device = next(self.meta_model.parameters()).device
 
-        iters = metadataset.num_tasks
+        # iters = metadataset.num_tasks
+        iters = args.n_tasks_val
         eval_losses, eval_accs = [], []
 
         for k in range(iters):
