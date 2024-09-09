@@ -2,6 +2,7 @@ import torch
 from torch import nn
 import torch.nn.functional as F
 from geoopt import Stiefel, ManifoldParameter, Euclidean
+from grassman import Grassman # geoopt doesn't have grassman so I do myself
 # from manifolds import EuclideanMod
 # from pymanopt.manifolds import Euclidean
 import math
@@ -36,16 +37,17 @@ class CNN(nn.Module):
         self.pad = padding
         self.stride = 1
 
-        self.stiefel = Stiefel(canonical=False)
+        # self.stiefel = Stiefel(canonical=False)
+        self.manifold = Grassman()
 
-        self.conv0_kernel = ManifoldParameter(self.stiefel.random(ic*ks*ks, hidden_size//2), manifold=self.stiefel)
+        self.conv0_kernel = ManifoldParameter(self.manifold.random(ic*ks*ks, hidden_size//2), manifold=self.manifold)
 
-        self.conv1_kernel = ManifoldParameter(self.stiefel.random(hidden_size//2*ks*ks, hidden_size),
-                                              manifold=self.stiefel)
-        self.conv2_kernel = ManifoldParameter(self.stiefel.random(hidden_size*ks*ks, hidden_size),
-                                              manifold=self.stiefel)
-        self.conv3_kernel = ManifoldParameter(self.stiefel.random(hidden_size*ks*ks, hidden_size),
-                                              manifold=self.stiefel)
+        self.conv1_kernel = ManifoldParameter(self.manifold.random(hidden_size//2*ks*ks, hidden_size),
+                                              manifold=self.manifold)
+        self.conv2_kernel = ManifoldParameter(self.manifold.random(hidden_size*ks*ks, hidden_size),
+                                              manifold=self.manifold)
+        self.conv3_kernel = ManifoldParameter(self.manifold.random(hidden_size*ks*ks, hidden_size),
+                                              manifold=self.manifold)
         # self.FC_w = ManifoldParameter(torch.Tensor(14112, 256).uniform_(-0.001, 0.001), manifold=Euclidean(ndim=2))
         # self.FC_b = ManifoldParameter(torch.Tensor(256).uniform_(-0.001, 0.001), manifold=Euclidean(ndim=1))
         self.bn0 = nn.BatchNorm2d(hidden_size//2, momentum=1., affine=False,
@@ -58,14 +60,14 @@ class CNN(nn.Module):
                                   track_running_stats=False)
 
     def conv_layer(self, x, conv_param, bn):
-        # x = F.relu(F.conv2d(x, conv_param,padding=self.pad))
-        # x = F.max_pool2d(x, 2)
-        # x = bn(x)
-        
-        x = F.conv2d(x, conv_param, padding=self.pad)
-        x = bn(x)
-        x = F.relu(x)
+        x = F.relu(F.conv2d(x, conv_param, padding=self.pad))
         x = F.max_pool2d(x, 2)
+        x = bn(x)
+        
+        # x = F.conv2d(x, conv_param, padding=self.pad)
+        # x = bn(x)
+        # x = F.relu(x)
+        # x = F.max_pool2d(x, 2)
         return x
 
     def forward(self, x, hparams):
@@ -111,7 +113,7 @@ if __name__ == '__main__':
     parser.add_argument('--batch_size', type=int, default=4, help='meta batch size')
     parser.add_argument('--ways', type=int, default=5, help='num classes in few shot learning')
     parser.add_argument('--shots', type=int, default=5, help='num training shots in few shot learning')
-    parser.add_argument('--steps', type=int, default=10000, help='total number of outer steps')
+    parser.add_argument('--steps', type=int, default=5000, help='total number of outer steps')
     parser.add_argument('--reg_param', type=float, default=0.5, help='reg param for inner problem')
 
     parser.add_argument('--eta_x', type=float, default=0.002)
