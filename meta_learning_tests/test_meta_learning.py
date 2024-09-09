@@ -2,7 +2,8 @@ import torch
 from torch import nn
 import torch.nn.functional as F
 from geoopt import Stiefel, ManifoldParameter, Euclidean
-from manifolds import EuclideanMod
+# from manifolds import EuclideanMod
+# from pymanopt.manifolds import Euclidean
 import math
 import numpy as np
 import argparse
@@ -11,7 +12,7 @@ import torchvision
 import torchvision.transforms as transforms
 import torch.optim as optim
 
-# from geoopt.optim import RiemannianSGD
+from geoopt.optim import RiemannianSGD
 import torchvision.transforms as Tr
 import learn2learn as l2l
 from learn2learn.data.transforms import FusedNWaysKShots, LoadData, RemapLabels, ConsecutiveLabels
@@ -19,8 +20,9 @@ import os
 
 import time
 
-from optimizer import RHGDstep
-from utils import autograd
+from optimizer import RieSBOstep
+# from utils import autograd
+from problem_class import Task, split_into_adapt_eval, meta_learning_problem
 
 import higher
 
@@ -48,19 +50,19 @@ def process_data(args):
     ])
 
     train_dataset = l2l.vision.datasets.MiniImagenet(
-        root='data/MiniImageNet',
+        root=os.path.dirname(os.path.abspath(__file__)) + '/data/MiniImageNet',
         mode='train',
         transform=transform_train,
         download=True)
     # print('got train dataset...')
     val_dataset = l2l.vision.datasets.MiniImagenet(
-        root='data/MiniImageNet',
+        root=os.path.dirname(os.path.abspath(__file__)) + '/data/MiniImageNet',
         mode='validation',
         transform=transform_test,
         download=True)
     # print('got val dataset...')
     test_dataset = l2l.vision.datasets.MiniImagenet(
-        root='data/MiniImageNet',
+        root=os.path.dirname(os.path.abspath(__file__)) + '/data/MiniImageNet',
         mode='test',
         transform=transform_test,
         download=True)
@@ -171,116 +173,15 @@ class CNN(nn.Module):
 class FC(nn.Module):
     def __init__(self, input_size, num_class):
         super().__init__()
-        self.weight = ManifoldParameter(torch.Tensor(input_size, num_class).uniform_(-0.0001, 0.0001), manifold=EuclideanMod(ndim=2))
-        self.bias = ManifoldParameter(torch.Tensor(num_class).uniform_(-0.0001, 0.0001), manifold=EuclideanMod(ndim=1))
+        # self.weight = ManifoldParameter(torch.Tensor(input_size, num_class).uniform_(-0.0001, 0.0001), manifold=EuclideanMod(ndim=2))
+        # self.bias = ManifoldParameter(torch.Tensor(num_class).uniform_(-0.0001, 0.0001), manifold=EuclideanMod(ndim=1))
+        self.weight = ManifoldParameter(torch.Tensor(input_size, num_class).uniform_(-0.0001, 0.0001))
+        self.bias = ManifoldParameter(torch.Tensor(num_class).uniform_(-0.0001, 0.0001))
 
     def forward(self, x, params):
         weight = params[0]
         bias = params[1]
         return x @ weight + bias
-
-
-def split_into_adapt_eval(batch,
-               shots,
-               ways,
-               device=None):
-
-    # Splits task data into adaptation/evaluation sets
-
-    data, labels = batch
-    data, labels = data.to(device), labels.to(device)
-
-    adapt_idx = np.zeros(data.size(0), dtype=bool)
-    adapt_idx[np.arange(shots * ways) * 2] = True
-
-    eval_idx = torch.from_numpy(~adapt_idx)
-    adapt_idx = torch.from_numpy(adapt_idx)
-    adapt_data, adapt_labels = data[adapt_idx], labels[adapt_idx]
-    eval_data, eval_labels = data[eval_idx], labels[eval_idx]
-
-    return adapt_data, adapt_labels, eval_data, eval_labels
-
-
-
-class Task:
-    """
-    Handles the train and validation loss for a single task
-    """
-    def __init__(self, reg_param, meta_model, task_model, data, batch_size=None): # here batchsize = number of tasks used at each step. we will do full GD for each task
-        device = next(meta_model.parameters()).device
-
-        # stateless version of meta_model
-        self.fmeta = higher.monkeypatch(meta_model, device=device, copy_initial_weights=True)
-        self.ftask = higher.monkeypatch(task_model, device=device, copy_initial_weights=True)
-        # self.fmeta = meta_model.to(device)
-        # self.ftask = task_model.to(device)
-
-        #self.n_params = len(list(meta_model.parameters()))
-        self.train_input, self.train_target, self.test_input, self.test_target = data
-        self.reg_param = reg_param
-        self.batch_size = 1 if not batch_size else batch_size
-        self.val_loss, self.val_acc = None, None
-
-    def compute_feats(self, hparams):
-        # compute train feats
-        self.train_feats = self.fmeta(self.train_input, params= hparams)
-
-    def reg_f(self, params):
-        # l2 regularization
-        return sum([(p ** 2).sum() for p in params])
-
-    def train_loss_f(self, params):
-        # regularized cross-entropy loss
-        out = self.ftask(self.train_feats, params=params)
-        return F.cross_entropy(out, self.train_target) + 0.5 * self.reg_param * self.reg_f(params)
-
-    def val_loss_f(self, params, hparams):
-        # cross-entropy loss (uses only the task-specific weights in params
-        feats = self.fmeta(self.test_input, params=hparams)
-        out = self.ftask(feats, params=params)
-        val_loss = F.cross_entropy(out, self.test_target)/self.batch_size
-        self.val_loss = val_loss.item()  # avoid memory leaks
-
-        with torch.no_grad():
-            pred = out.argmax(dim=1, keepdim=True)  # get the index of the max log-probability
-            self.val_acc = pred.eq(self.test_target.view_as(pred)).sum().item() / len(self.test_target)
-
-        return val_loss
-
-
-
-
-
-
-
-
-
-# def inner_solver(task, hparams, params, steps, optim, params0=None, log_interval=None):
-#
-#     if params0 is not None:
-#         for param, param0 in zip(params, params0):
-#             param.data = param0.data
-#
-#     task.compute_feats(hparams) # compute feats only once to make inner iterations lighter (only linear transformations!)
-#
-#     for t in range(steps):
-#         loss = task.train_loss_f(params)
-#         grads = torch.autograd.grad(loss, params)
-#
-#
-#         if log_interval and (t % log_interval==0 or t==steps-1):
-#             print('Inner step t={}, Loss: {:.6f}'.format(t, loss.item()))
-#
-#     return [param.detach().clone() for param in params]
-
-
-# def update_tensor_grads(params, grads):
-#     for l, g in zip(params, grads):
-#         if l.grad is None:
-#             l.grad = torch.zeros_like(l)
-#         if g is not None:
-#             l.grad += g
-
 
 
 if __name__ == '__main__':
@@ -304,69 +205,12 @@ if __name__ == '__main__':
     parser.add_argument('--ns_gamma', type=float, default=0.01)
     parser.add_argument('--ns_iter', type=int, default=50)
     parser.add_argument('--seed', type=int, default=42)
+    parser.add_argument('--T', type=int, default=30)
 
     args = parser.parse_args()
 
     if not os.path.isdir(args.ckpt_dir):
         os.makedirs(args.ckpt_dir)
-
-
-    def loss_lower(hparams, params, data):
-        train_input, train_target = data
-        # task.compute_feats(hparams)
-        # loss = task.train_loss_f(params)
-        feats = meta_model(train_input, hparams)
-        out = task_model(feats, params)
-        loss = F.cross_entropy(out, train_target) + 0.5 * reg_param * sum([(p ** 2).sum() for p in params])/len(params)
-        return loss
-
-    def loss_upper(hparams, params, data):
-        test_input, test_target = data
-        # loss = task.val_loss_f(params, hparams)
-        feats = meta_model(test_input, hparams)
-        out = task_model(feats, params)
-        loss = F.cross_entropy(out, test_target)
-        # loss = val_loss.item()  # avoid memory leaks
-        return loss
-
-
-    def evaluate(metadataset, meta_model, task_model, hparams, params0, reg_param, inner_steps, args):
-        # meta_model.train()
-        device = next(meta_model.parameters()).device
-
-        iters = metadataset.num_tasks
-        eval_losses, eval_accs = [], []
-
-        for k in range(iters):
-
-            data = metadataset.sample()
-            data = split_into_adapt_eval(data,
-                                         shots=args.shots,
-                                         ways=args.ways,
-                                         device=device)
-
-            task = Task(reg_param, meta_model, task_model, data)  # metabatchsize will be 1 here
-
-            # single task inner loop
-            params = [p.detach().clone().requires_grad_(True) for p in params0]
-            for ii in range(inner_steps):
-                grad = autograd(loss_lower(hparams, params), params)
-                with torch.no_grad():
-                    for param, egrad in zip(params, grad):
-                        rgrad = param.manifold.egrad2rgrad(param, egrad)
-                        new_param = param.manifold.retr(param, -args.eta_y * rgrad)
-                        param.copy_(new_param)
-
-            task.val_loss_f(params, hparams)
-
-            eval_losses.append(task.val_loss)
-            eval_accs.append(task.val_acc)
-
-            if k >= 999:  # use at most 1000 tasks for evaluation
-                return np.array(eval_losses), np.array(eval_accs)
-
-        return np.array(eval_losses), np.array(eval_accs)
-
 
     run = 1
     mu = 0.1
@@ -380,9 +224,9 @@ if __name__ == '__main__':
     n_tasks_val = 200
 
     reg_param = args.reg_param  # reg_param = 0.5
-    T = 30  # T = 30
+    # T = 30  # T = 30
 
-    T_test = T
+    T_test = args.T
     log_interval = 25
     eval_interval = 50
 
@@ -418,7 +262,9 @@ if __name__ == '__main__':
 
     meta_model = CNN(32).to(device)
     task_model = FC(3200, args.ways).to(device)
-
+    
+    # define the problem class
+    problem = meta_learning_problem(meta_model, task_model, args)
 
     # training starts
     start_iter = 0
@@ -430,6 +276,8 @@ if __name__ == '__main__':
 
     hparams = list(meta_model.parameters())
     params = list(task_model.parameters())
+    # print([(param.name, param.shape) for param in params])
+    # exit()
 
     inner_log_interval = None
     inner_log_interval_test = None
@@ -445,26 +293,28 @@ if __name__ == '__main__':
 
         th = 0.0
 
-        for t_idx in range(meta_bsz):
-            start_time_task = time.time()
+        # for t_idx in range(meta_bsz):
+            
+        start_time_task = time.time()
+        # sample a training task
+        task_data = train_tasks.sample()
 
-            # sample a training task
-            task_data = train_tasks.sample()
+        task_data = split_into_adapt_eval(task_data,
+                                            shots=args.shots,
+                                            ways=args.ways,
+                                            device=device)
 
-            task_data = split_into_adapt_eval(task_data,
-                                              shots=args.shots,
-                                              ways=args.ways,
-                                              device=device)
+        train_input, train_target, test_input, test_target = task_data
+        data_lower = [train_input, train_target]
+        data_upper = [test_input, test_target]
+        # single task set up
+        # task = Task(reg_param, meta_model, task_model, task_data, batch_size=meta_bsz)
 
-            train_input, train_target, test_input, test_target = task_data
-            data_lower = [train_input, train_target]
-            data_upper = [test_input, test_target]
-            # single task set up
-            # task = Task(reg_param, meta_model, task_model, task_data, batch_size=meta_bsz)
-
-            hparams, params, loss_u, hgradnorm, step_time = RHGDstep(loss_lower, loss_upper, hparams, params, args,
-                                                                     data=[data_lower, data_upper])
-            print(loss_u)
+        hparams, params, loss_u, hgradnorm, step_time = RieSBOstep(problem, hparams, params, args,
+                                                                    data=[data_lower, data_upper])
+        
+        if k % eval_interval == 0:
+            print(f"    iter {k}, loss upper: {loss_u}, step time: {step_time}")
 
         run_time.append(total_time)
         vals.append(val_loss)  # this is actually train loss in few-shot learning
@@ -472,9 +322,12 @@ if __name__ == '__main__':
 
         # evaluate on test data
         if (k + 1) % eval_interval == 0:
-            params0 = params.detach().clone()
-            val_losses, val_accs = evaluate(val_tasks, meta_model, task_model, hparams, params0, reg_param,
-                                            test_inner_lr, args)
+            # params0 = params.detach().clone()
+            params0 = [param.detach().clone() for param in params]
+            # val_losses, val_accs = evaluate(val_tasks, meta_model, task_model, hparams, params0, reg_param,
+            #                                 test_inner_lr, args)
+            val_losses, val_accs = problem.evaluate(val_tasks, hparams, params0, reg_param,
+                                            T_test, args)
 
             evals.append((val_losses.mean(), val_losses.std(), 100. * val_accs.mean(), 100. * val_accs.std()))
             string = "Val loss {:.2e} (+/- {:.2e}): Val acc: {:.2f} (+/- {:.2e}) [mean (+/- std) over {} tasks].".format(
@@ -483,8 +336,10 @@ if __name__ == '__main__':
             # args.out_file.flush()
             print(string)
 
-            test_losses, test_accs = evaluate(test_tasks, meta_model, task_model, hparams, params0, reg_param,
-                                              test_inner_lr, args)
+            # test_losses, test_accs = evaluate(test_tasks, meta_model, task_model, hparams, params0, reg_param,
+            #                                   test_inner_lr, args)
+            test_losses, test_accs = problem.evaluate(test_tasks, hparams, params0, reg_param,
+                                              T_test, args)
 
             evals.append((test_losses.mean(), test_losses.std(), 100. * test_accs.mean(), 100. * test_accs.std()))
 
@@ -494,10 +349,3 @@ if __name__ == '__main__':
             # args.out_file.write(string + '\n')
             # args.out_file.flush()
             print(string)
-
-
-
-
-
-
-
