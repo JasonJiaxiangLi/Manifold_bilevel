@@ -17,83 +17,14 @@ import torchvision.transforms as Tr
 import learn2learn as l2l
 from learn2learn.data.transforms import FusedNWaysKShots, LoadData, RemapLabels, ConsecutiveLabels
 import os
-
 import time
+import higher
 
 from optimizer import RieSBOstep
 # from utils import autograd
-from problem_class import Task, split_into_adapt_eval, meta_learning_problem
-
-import higher
-
+from problem_class import Task, split_into_adapt_eval, meta_learning_problem, process_data
 
 # code based on https://github.com/sowmaster/esjacobians/blob/master/meta_learning.py
-
-
-def process_data(args):
-    MEAN = [x / 255.0 for x in [120.39586422, 115.59361427, 104.54012653]]
-    STD = [x / 255.0 for x in [70.68188272, 68.27635443, 72.54505529]]
-    normalize = Tr.Normalize(mean=MEAN, std=STD)
-
-    # use the same data-augmentation as in lee et al.
-    transform_train = Tr.Compose([
-        # Tr.ToPILImage(),
-        # Tr.RandomCrop(84, padding=8),
-        # Tr.ColorJitter(brightness=0.4, contrast=0.4, saturation=0.4),
-        # Tr.RandomHorizontalFlip(),
-        # Tr.ToTensor(),
-        normalize
-    ])
-
-    transform_test = Tr.Compose([
-        normalize
-    ])
-
-    train_dataset = l2l.vision.datasets.MiniImagenet(
-        root=os.path.dirname(os.path.abspath(__file__)) + '/data/MiniImageNet',
-        mode='train',
-        transform=transform_train,
-        download=True)
-    # print('got train dataset...')
-    val_dataset = l2l.vision.datasets.MiniImagenet(
-        root=os.path.dirname(os.path.abspath(__file__)) + '/data/MiniImageNet',
-        mode='validation',
-        transform=transform_test,
-        download=True)
-    # print('got val dataset...')
-    test_dataset = l2l.vision.datasets.MiniImagenet(
-        root=os.path.dirname(os.path.abspath(__file__)) + '/data/MiniImageNet',
-        mode='test',
-        transform=transform_test,
-        download=True)
-
-    train_dataset = l2l.data.MetaDataset(train_dataset)
-    val_dataset = l2l.data.MetaDataset(val_dataset)
-    test_dataset = l2l.data.MetaDataset(test_dataset)
-
-    train_transforms = [FusedNWaysKShots(train_dataset, n=args.ways, k=2 * args.shots),
-                        LoadData(train_dataset),
-                        RemapLabels(train_dataset),
-                        ConsecutiveLabels(train_dataset)]
-
-    train_tasks = l2l.data.TaskDataset(train_dataset, task_transforms=train_transforms, num_tasks=args.n_tasks_train)
-
-    val_transforms = [FusedNWaysKShots(val_dataset, n=args.ways, k=2 * args.shots),
-                      LoadData(val_dataset),
-                      ConsecutiveLabels(val_dataset),
-                      RemapLabels(val_dataset)]
-
-    val_tasks = l2l.data.TaskDataset(val_dataset, task_transforms=val_transforms, num_tasks=args.n_tasks_val)
-
-    test_transforms = [FusedNWaysKShots(test_dataset, n=args.ways, k=2 * args.shots),
-                       LoadData(test_dataset),
-                       RemapLabels(test_dataset),
-                       ConsecutiveLabels(test_dataset)]
-
-    test_tasks = l2l.data.TaskDataset(test_dataset, task_transforms=test_transforms, num_tasks=args.n_tasks_test)
-
-    return train_tasks, val_tasks, test_tasks
-
 
 class CNN(nn.Module):
     def __init__(self, hidden_size, ic=3, ks=3, padding=1):
@@ -183,11 +114,11 @@ if __name__ == '__main__':
     parser.add_argument('--steps', type=int, default=10000, help='total number of outer steps')
     parser.add_argument('--reg_param', type=float, default=0.5, help='reg param for inner problem')
 
-    parser.add_argument('--eta_x', type=float, default=0.0005)
-    parser.add_argument('--eta_y', type=float, default=0.01)
+    parser.add_argument('--eta_x', type=float, default=0.002)
+    parser.add_argument('--eta_y', type=float, default=0.02)
     parser.add_argument('--ns_gamma', type=float, default=0.01) # the eta in Neumann series
-    parser.add_argument('--ns_iter', type=int, default=30) # the K or Q in Neumann series
-    parser.add_argument('--lower_iter', type=int, default=15)
+    parser.add_argument('--ns_iter', type=int, default=50) # the K or Q in Neumann series
+    parser.add_argument('--lower_iter', type=int, default=10)
     parser.add_argument('--epoch', type=int, default=200)
     parser.add_argument('--hygrad_opt', type=str, default='ns', choices=['hinv', 'cg', 'ns', 'ad'])
     parser.add_argument('--seed', type=int, default=42)
@@ -251,7 +182,6 @@ if __name__ == '__main__':
                                                                             root=os.path.dirname(os.path.abspath(__file__)) + '/data/MiniImageNet')
 
     meta_model = CNN(32).to(device)
-    # meta_model = NewCNN(32).to(device)
     # task_model = FC(3200, args.ways).to(device)
     task_model = FC(800, args.ways).to(device)
     

@@ -4,6 +4,70 @@ from torch import nn
 import torch.nn.functional as F
 from geoopt import Stiefel
 
+def process_data(args):
+    MEAN = [x / 255.0 for x in [120.39586422, 115.59361427, 104.54012653]]
+    STD = [x / 255.0 for x in [70.68188272, 68.27635443, 72.54505529]]
+    normalize = Tr.Normalize(mean=MEAN, std=STD)
+
+    # use the same data-augmentation as in lee et al.
+    transform_train = Tr.Compose([
+        # Tr.ToPILImage(),
+        # Tr.RandomCrop(84, padding=8),
+        # Tr.ColorJitter(brightness=0.4, contrast=0.4, saturation=0.4),
+        # Tr.RandomHorizontalFlip(),
+        # Tr.ToTensor(),
+        normalize
+    ])
+
+    transform_test = Tr.Compose([
+        normalize
+    ])
+
+    train_dataset = l2l.vision.datasets.MiniImagenet(
+        root=os.path.dirname(os.path.abspath(__file__)) + '/data/MiniImageNet',
+        mode='train',
+        transform=transform_train,
+        download=True)
+    # print('got train dataset...')
+    val_dataset = l2l.vision.datasets.MiniImagenet(
+        root=os.path.dirname(os.path.abspath(__file__)) + '/data/MiniImageNet',
+        mode='validation',
+        transform=transform_test,
+        download=True)
+    # print('got val dataset...')
+    test_dataset = l2l.vision.datasets.MiniImagenet(
+        root=os.path.dirname(os.path.abspath(__file__)) + '/data/MiniImageNet',
+        mode='test',
+        transform=transform_test,
+        download=True)
+
+    train_dataset = l2l.data.MetaDataset(train_dataset)
+    val_dataset = l2l.data.MetaDataset(val_dataset)
+    test_dataset = l2l.data.MetaDataset(test_dataset)
+
+    train_transforms = [FusedNWaysKShots(train_dataset, n=args.ways, k=2 * args.shots),
+                        LoadData(train_dataset),
+                        RemapLabels(train_dataset),
+                        ConsecutiveLabels(train_dataset)]
+
+    train_tasks = l2l.data.TaskDataset(train_dataset, task_transforms=train_transforms, num_tasks=args.n_tasks_train)
+
+    val_transforms = [FusedNWaysKShots(val_dataset, n=args.ways, k=2 * args.shots),
+                      LoadData(val_dataset),
+                      ConsecutiveLabels(val_dataset),
+                      RemapLabels(val_dataset)]
+
+    val_tasks = l2l.data.TaskDataset(val_dataset, task_transforms=val_transforms, num_tasks=args.n_tasks_val)
+
+    test_transforms = [FusedNWaysKShots(test_dataset, n=args.ways, k=2 * args.shots),
+                       LoadData(test_dataset),
+                       RemapLabels(test_dataset),
+                       ConsecutiveLabels(test_dataset)]
+
+    test_tasks = l2l.data.TaskDataset(test_dataset, task_transforms=test_transforms, num_tasks=args.n_tasks_test)
+
+    return train_tasks, val_tasks, test_tasks
+
 def split_into_adapt_eval(batch,
                shots,
                ways,
