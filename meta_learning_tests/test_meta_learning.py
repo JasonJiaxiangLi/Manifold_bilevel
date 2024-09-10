@@ -244,8 +244,7 @@ if __name__ == '__main__':
                 egrad = hparam.grad / meta_bsz
                 
                 if args.algorithm == "Euclidean":
-                    new_hparam = hparam - args.eta_x * egrad
-                    new_hparam = new_hparam.manifold.projx(new_hparam)
+                    new_hparam = hparam.manifold.projx(hparam - args.eta_x * egrad)
                     hgradnorm += torch.linalg.norm(egrad)
                 else: # the Riemannian algorithm
                     rgrad = hparam.manifold.egrad2rgrad(hparam, egrad)
