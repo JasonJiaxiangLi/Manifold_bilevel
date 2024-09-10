@@ -236,12 +236,12 @@ if __name__ == '__main__':
         with torch.no_grad():
             for hparam in hparams:
                 egrad = hparam.grad / meta_bsz
-                new_hparam = hparam - args.eta_x * egrad
-                hgradnorm += torch.linalg.norm(egrad)
+                # new_hparam = hparam - args.eta_x * egrad
+                # hgradnorm += torch.linalg.norm(egrad)
                 
-                # rgrad = hparam.manifold.egrad2rgrad(hparam, egrad)
-                # new_hparam = hparam.manifold.retr(hparam, - args.eta_x * rgrad)
-                # hgradnorm += torch.linalg.norm(rgrad)
+                rgrad = hparam.manifold.egrad2rgrad(hparam, egrad)
+                new_hparam = hparam.manifold.retr(hparam, - args.eta_x * rgrad)
+                hgradnorm += torch.linalg.norm(rgrad)
                 
                 hparam.copy_(new_hparam)
         

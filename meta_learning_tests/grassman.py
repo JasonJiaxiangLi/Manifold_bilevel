@@ -159,7 +159,7 @@ class EuclideanGrassman(Grassman):
         # unflip = linalg.extract_diag(r).sign().add(0.5).sign()
         # q *= unflip[..., None, :]
         
-        u, s, vt = linalg.svd(x + u)
+        u, s, vt = linalg.svd(x + u, full_matrices=False)
         return u @ vt
 
     def expmap(self, x: torch.Tensor, u: torch.Tensor) -> torch.Tensor:
