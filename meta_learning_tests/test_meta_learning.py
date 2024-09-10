@@ -8,6 +8,7 @@ from grassman import Grassman # geoopt doesn't have grassman so I do myself
 import math
 import numpy as np
 import argparse
+import json
 
 import torchvision
 import torchvision.transforms as transforms
@@ -108,8 +109,9 @@ if __name__ == '__main__':
     parser.add_argument('--dataset', type=str, default='miniimagenet', metavar='N',
                         help='omniglot or miniimagenet or fc100')
     parser.add_argument('--resume', type=bool, default=False, help='whether to resume from checkpoint')
+    parser.add_argument('--save_record', type=bool, default=True, help='whether to save training records')
     parser.add_argument('--ckpt_dir', type=str, default='metalogs', help='path of checkpoint file')
-    parser.add_argument('--save_every', type=int, default=200)
+    parser.add_argument('--save_every', type=int, default=1000)
     parser.add_argument('--batch_size', type=int, default=4, help='meta batch size')
     parser.add_argument('--ways', type=int, default=5, help='num classes in few shot learning')
     parser.add_argument('--shots', type=int, default=5, help='num training shots in few shot learning')
@@ -122,7 +124,8 @@ if __name__ == '__main__':
     parser.add_argument('--ns_iter', type=int, default=50) # the K or Q in Neumann series
     parser.add_argument('--lower_iter', type=int, default=10)
     parser.add_argument('--epoch', type=int, default=200)
-    parser.add_argument('--hygrad_opt', type=str, default='ns', choices=['hinv', 'cg', 'ns', 'ad'])
+    # parser.add_argument('--hygrad_opt', type=str, default='ns', choices=['hinv', 'cg', 'ns', 'ad'])
+    parser.add_argument('--algorithm', type=str, default='Riemannian', choices=['Riemannian', 'Euclidean'])
     parser.add_argument('--seed', type=int, default=42)
     parser.add_argument('--T', type=int, default=30)
     
@@ -130,8 +133,8 @@ if __name__ == '__main__':
     parser.add_argument('--n_tasks_test', type=int, default=200)
     parser.add_argument('--n_tasks_val', type=int, default=200)
     
-    parser.add_argument('--log_interval', type=int, default=50)
-    parser.add_argument('--eval_interval', type=int, default=50)
+    parser.add_argument('--log_interval', type=int, default=20)
+    parser.add_argument('--eval_interval', type=int, default=20)
 
     args = parser.parse_args()
 
@@ -183,9 +186,12 @@ if __name__ == '__main__':
                                                                             test_ways=args.ways,
                                                                             root=os.path.dirname(os.path.abspath(__file__)) + '/data/MiniImageNet')
 
+    # models and model parameters
     meta_model = CNN(32).to(device)
     # task_model = FC(3200, args.ways).to(device)
     task_model = FC(800, args.ways).to(device)
+    hparams = list(meta_model.parameters())
+    params = list(task_model.parameters())
     
     # define the problem class
     problem = meta_learning_problem(meta_model, task_model, args)
@@ -193,20 +199,21 @@ if __name__ == '__main__':
     # training starts
     start_iter = 0
     total_time = 0
-
-    run_time, accs, vals, evals = [], [], [], []
-
-    hparams = list(meta_model.parameters())
-    params = list(task_model.parameters())
-
     inner_log_interval = None
     inner_log_interval_test = None
-
     meta_bsz = args.batch_size
     
+    res = {"total_time": [], 
+           "train_loss": [],
+           "norm_grad": [],
+           "val_loss": [],
+           "test_loss": [],
+           "val_acc": [],
+           "test_acc": []}
+    
+    total_time = 0.0
     running_loss = 0.0
     hgradnorm = 0.0
-    
     for k in range(start_iter, K):
         start_time = time.time()
 
@@ -229,55 +236,49 @@ if __name__ == '__main__':
             # single task set up
             # task = Task(reg_param, meta_model, task_model, task_data, batch_size=meta_bsz)
             
-            hparams, params, loss_u, step_time = RieSBOstep(problem, hparams, params, args,
+            hparams, params, loss_u, _ = RieSBOstep(problem, hparams, params, args,
                                                                         data=[data_lower, data_upper])
             running_loss += loss_u
         
         with torch.no_grad():
             for hparam in hparams:
                 egrad = hparam.grad / meta_bsz
-                # new_hparam = hparam - args.eta_x * egrad
-                # hgradnorm += torch.linalg.norm(egrad)
                 
-                rgrad = hparam.manifold.egrad2rgrad(hparam, egrad)
-                new_hparam = hparam.manifold.retr(hparam, - args.eta_x * rgrad)
-                hgradnorm += torch.linalg.norm(rgrad)
+                if args.algorithm == "Euclidean":
+                    new_hparam = hparam - args.eta_x * egrad
+                    hgradnorm += torch.linalg.norm(egrad)
+                else: # the Riemannian algorithm
+                    rgrad = hparam.manifold.egrad2rgrad(hparam, egrad)
+                    new_hparam = hparam.manifold.retr(hparam, - args.eta_x * rgrad)
+                    hgradnorm += torch.linalg.norm(rgrad)
                 
                 hparam.copy_(new_hparam)
         
+        step_time = time.time() - start_time
+        total_time += step_time
+        
+        # evaluate on test data
         if (k + 1) % eval_interval == 0:
             print(f"iter {k}, step time: {step_time}")
             print(f"          norm_grad: {hgradnorm / eval_interval / meta_bsz}")
             print(f"          Train loss: {running_loss / eval_interval / meta_bsz}")
-            running_loss = 0.0
-            hgradnorm = 0.0
-
-        run_time.append(total_time)
-        vals.append(val_loss)  # this is actually train loss in few-shot learning
-        accs.append(val_acc)  # this is actually train accuracy in few-shot learning
-
-        # evaluate on test data
-        if (k + 1) % eval_interval == 0:
+            
             # params0 = params.detach().clone()
             params0 = [param.detach().clone() for param in params]
-            # val_losses, val_accs = evaluate(val_tasks, meta_model, task_model, hparams, params0, reg_param,
-            #                                 test_inner_lr, args)
             val_losses, val_accs = problem.evaluate(val_tasks, hparams, params0, reg_param,
                                             T_test, args)
 
-            evals.append((val_losses.mean(), val_losses.std(), 100. * val_accs.mean(), 100. * val_accs.std()))
+            # evals.append((val_losses.mean(), val_losses.std(), 100. * val_accs.mean(), 100. * val_accs.std()))
             string = "          Val loss {:.2e} (+/- {:.2e}): Val acc: {:.2f} (+/- {:.2e}) [mean (+/- std) over {} tasks].".format(
                 val_losses.mean(), val_losses.std(), 100. * val_accs.mean(), 100. * val_accs.std(), len(val_losses))
             # args.out_file.write(string + '\n')
             # args.out_file.flush()
             print(string)
 
-            # test_losses, test_accs = evaluate(test_tasks, meta_model, task_model, hparams, params0, reg_param,
-            #                                   test_inner_lr, args)
             test_losses, test_accs = problem.evaluate(test_tasks, hparams, params0, reg_param,
                                               T_test, args)
 
-            evals.append((test_losses.mean(), test_losses.std(), 100. * test_accs.mean(), 100. * test_accs.std()))
+            # evals.append((test_losses.mean(), test_losses.std(), 100. * test_accs.mean(), 100. * test_accs.std()))
 
             string = "          Test loss {:.2e} (+/- {:.2e}): Test acc: {:.2f} (+/- {:.2e}) [mean (+/- std) over {} tasks].".format(
                 test_losses.mean(), test_losses.std(), 100. * test_accs.mean(), 100. * test_accs.std(),
@@ -285,3 +286,24 @@ if __name__ == '__main__':
             # args.out_file.write(string + '\n')
             # args.out_file.flush()
             print(string)
+            
+            # recording
+            res["total_time"].append(total_time)
+            res["train_loss"].append(running_loss / eval_interval / meta_bsz)
+            res["norm_grad"].append(hgradnorm.item() / eval_interval / meta_bsz)
+            res["val_loss"].append(float(val_losses.mean()))
+            res["test_loss"].append(float(test_losses.mean()))
+            res["val_acc"].append(float(100. * val_accs.mean()))
+            res["test_acc"].append(float(100. * test_accs.mean()))
+            
+            # for k, v in res.items():
+            #     print(f"k: {k}, v type: {type(v[0])}")
+            # exit()
+            
+            running_loss = 0.0
+            hgradnorm = 0.0
+    
+    if args.save_record:
+        json_file = "res_" + args.algorithm + ".json"
+        with open(json_file, "w") as outfile: 
+            json.dump(res, outfile)

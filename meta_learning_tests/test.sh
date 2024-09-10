@@ -21,6 +21,10 @@ echo "Job is starting on $(hostname)"
 
 cd /home/mhong/li003755/Manifold_bilevel || exit
 
-python meta_learning_tests/test_meta_learning.py
+python meta_learning_tests/test_meta_learning.py \
+    --algorithm="Riemannian"
+
+python meta_learning_tests/test_meta_learning.py \
+    --algorithm="Euclidean"
 
 exit

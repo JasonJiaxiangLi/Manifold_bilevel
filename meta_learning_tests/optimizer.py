@@ -99,5 +99,5 @@ def RieSBOstep(problem,hparams,params,args,data):
     
     update_tensor_grads(hparams, grads)
     
-    return hparams, params, loss_u.detach(), time.time() - start_time
+    return hparams, params, loss_u.item(), time.time() - start_time
     # return hparams, params, loss_u, hgradnorm, step_time
