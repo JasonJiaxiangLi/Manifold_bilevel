@@ -4,3 +4,4 @@ metalogs/
 __pycache__/
 log/
 *.log
+test.sh

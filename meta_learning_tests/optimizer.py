@@ -29,7 +29,6 @@ def get_outer_gradients(outer_loss, params, hparams, retain_graph=True):
     return grad_outer_w, grad_outer_hparams
 
 def cat_list_to_tensor(list_tx):
-    # return torch.cat([xx.view([-1]) for xx in list_tx])
     return torch.cat([xx.reshape([-1]) for xx in list_tx])
 
 def neumann(params: List[Tensor],
@@ -38,7 +37,7 @@ def neumann(params: List[Tensor],
             fp_map: Callable[[List[Tensor], List[Tensor]], List[Tensor]],
             outer_loss: Callable[[List[Tensor], List[Tensor]], Tensor],
             tol=1e-10) -> List[Tensor]:
-    """ Saves one iteration from the fixed point method"""
+    """Neumann series method for estimating the hypergradient"""
     params = [w.detach().clone().requires_grad_(True) for w in params]
     # hparams = [w.detach().clone().requires_grad_(True) for w in hparams]
     o_loss = outer_loss(hparams, params)
@@ -62,7 +61,6 @@ def neumann(params: List[Tensor],
     grads = [g + v for g, v in zip(grads, grad_outer_hparams)]
     # grads = [K * g + v for g, v in zip(grads, grad_outer_hparams)]
     return grads
-
 
 def RieSBOstep(problem,hparams,params,args,data):
     data_lower, data_upper = data
@@ -100,4 +98,3 @@ def RieSBOstep(problem,hparams,params,args,data):
     update_tensor_grads(hparams, grads)
     
     return hparams, params, loss_u.item(), time.time() - start_time
-    # return hparams, params, loss_u, hgradnorm, step_time
