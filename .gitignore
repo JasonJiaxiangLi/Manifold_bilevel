@@ -1,7 +1,10 @@
 data/
 metalogs/
-*.ipynb
+test.ipynb
 __pycache__/
 log/
 *.log
 test.sh
+*.json
+*.pdf
+plots/

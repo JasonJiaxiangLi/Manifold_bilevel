@@ -3,7 +3,6 @@ import time
 import random
 from torch.autograd import grad as torch_grad
 from torch import Tensor
-from torch.autograd.functional import jvp, hvp
 from typing import List, Callable
 
 def update_tensor_grads(hparams, grads):
@@ -68,7 +67,7 @@ def RieSBOstep(problem,hparams,params,args,data):
     
     params = [p.detach().clone().requires_grad_(True) for p in params]
     # solve the inner:
-    for ii in range(args.lower_iter):
+    for _ in range(args.lower_iter):
         # grad = autograd(loss_lower(hparams, params), params)
         loss_l = problem.loss_lower(hparams, params, data=data_lower)
         # print(f"loss_l: {loss_l}")
@@ -77,7 +76,6 @@ def RieSBOstep(problem,hparams,params,args,data):
             for param, grad in zip(params, grads):
                 new_param = param - args.eta_y * grad
                 param.copy_(new_param)
-                
     # print()
     
     def fp_map(params, hparams):
@@ -92,9 +90,7 @@ def RieSBOstep(problem,hparams,params,args,data):
         
     loss_u = problem.loss_upper(hparams, params, data=data_upper)
     
-    # grads = torch.autograd.grad(loss_u, hparams)
     grads = neumann(params, hparams, K=args.ns_iter, fp_map=fp_map, outer_loss=outer_loss)
-    
     update_tensor_grads(hparams, grads)
     
     return hparams, params, loss_u.item(), time.time() - start_time

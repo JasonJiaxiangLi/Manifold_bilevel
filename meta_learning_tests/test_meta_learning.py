@@ -124,7 +124,6 @@ if __name__ == '__main__':
     parser.add_argument('--ns_iter', type=int, default=50) # the K or Q in Neumann series
     parser.add_argument('--lower_iter', type=int, default=10)
     parser.add_argument('--epoch', type=int, default=200)
-    # parser.add_argument('--hygrad_opt', type=str, default='ns', choices=['hinv', 'cg', 'ns', 'ad'])
     parser.add_argument('--algorithm', type=str, default='Riemannian', choices=['Riemannian', 'Euclidean'])
     parser.add_argument('--seed', type=int, default=42)
     parser.add_argument('--T', type=int, default=30)
@@ -246,6 +245,7 @@ if __name__ == '__main__':
                 
                 if args.algorithm == "Euclidean":
                     new_hparam = hparam - args.eta_x * egrad
+                    new_hparam = new_hparam.manifold.projx(new_hparam)
                     hgradnorm += torch.linalg.norm(egrad)
                 else: # the Riemannian algorithm
                     rgrad = hparam.manifold.egrad2rgrad(hparam, egrad)
