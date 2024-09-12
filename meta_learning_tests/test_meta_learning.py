@@ -105,6 +105,10 @@ class FC(nn.Module):
 
 
 if __name__ == '__main__':
+    """ Run this test with:
+    python meta_learning_tests/test_meta_learning.py \
+        --algorithm="Riemannian"
+    """
     parser = argparse.ArgumentParser()
     parser.add_argument('--dataset', type=str, default='miniimagenet', metavar='N',
                         help='omniglot or miniimagenet or fc100')
